@@ -1,0 +1,7 @@
+# database inlog credentials
+driver: ''
+server: '', 
+database: ''
+user: ''
+password: ''
+poort: ''
