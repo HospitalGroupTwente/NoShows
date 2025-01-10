@@ -17,7 +17,32 @@ def add_working_days(df: pd.DataFrame, column: str, exclude_days: int) -> pd.Dat
     return df
 
 
-def get_rolling_feature(df, history_years, exclude_days, rolling_func, feature, new_feature):
+def get_rolling_feature(df: pd.DataFrame, history_years: int, exclude_days: int, rolling_func: str, feature: str, new_feature: str):
+    '''
+    Calculates a rolling feature, i.e. a feature that is obtained by applying a function on a rolling window
+    It creates a rolling window for the amount of history_years specified, without the exclude_days, and applies the rolling_func on this window.
+
+    Paramters
+    ---------
+    df :  pd.DataFrame
+        Dataframe containing all the appointment data
+    history_years : int
+        amount of years of the rolling window
+    exclude_days : int
+        number of days that are excluded from the rolling window, i.e. 3 if you want to predict no shows for over 3 days
+    rolling_func : str
+        flag for which rolling function is applied on the rolling window.
+        This has to be either sum or count
+    feature : str
+        name of the column on which the rolling_func is applied
+    new_feature : str
+        name of the column of your new feature, this can be whatever suits
+    
+    Returns
+    -------
+    pd.DataFrame
+        Dataframe containing the new rolling feature
+    '''
     
     # create rolling windows, df_exclude will be used to remove the data about appointments of the previous n days. This is done because in deployment we will be predicting no shows over n days
     window_days = 365 * history_years
@@ -38,6 +63,25 @@ def get_rolling_feature(df, history_years, exclude_days, rolling_func, feature, 
     return df
 
 def get_feature_of_last_appointment(df, exclude_days, feature, new_feature):
+    '''
+    Fetches a feature of the previous appointment
+
+    Paramters
+    ---------
+    df :  pd.DataFrame
+        Dataframe containing all the appointment data
+    exclude_days : int
+        number of days that are excluded from determining what the last appointment was, i.e. 3 if you want to predict no shows for over 3 days
+    feature : str
+        name of the column on which is applied
+    new_feature : str
+        name of the column of your new feature, this can be whatever suits
+    
+    Returns
+    -------
+    pd.DataFrame
+        Dataframe containing the new fast appointment feature
+    '''
     
     # calculate status of the last appointment, excluding the appointments from the last 3 days
     df = df.sort_values(by=['PATIENTNR', 'STARTDATEPLAN'])
@@ -63,9 +107,11 @@ def calculate_cum_features(df: pd.DataFrame, history_years : int=5, exclude_days
     This is based on a history of the patient of n years ago
 
     The features consists out of:
-    (1) number of no shows (2) number of appointments (3) percentage of no shows 
-    (4) mean difference between arrival and appointment time (5) days since last appointment
-    (6) appointment last week y/n
+    (1) number of no shows 
+    (2) number of appointments 
+    (3) percentage of no shows 
+    (4) mean difference between arrival and appointment time 
+    (5) days since last appointment
     '''
 
     # Rolling features can't be calculated on non-unique index
@@ -76,6 +122,7 @@ def calculate_cum_features(df: pd.DataFrame, history_years : int=5, exclude_days
     df = df.pipe(get_rolling_feature, history_years, exclude_days, 'sum', 'no_show', 'num_no_shows') \
            .pipe(get_rolling_feature, history_years, exclude_days, 'count', 'no_show', 'num_appointments') \
            .pipe(get_rolling_feature, history_years, exclude_days, 'sum', 'VerschilAankomstEnStart', 'sum_arrival_times') \
+           .pipe(get_rolling_feature, 0.25, 3, 'count', 'no_show', 'num_appointment_last_3_months') \
            .pipe(get_feature_of_last_appointment, exclude_days, 'no_show', 'last_noshow') \
            .pipe(get_feature_of_last_appointment, exclude_days, 'STARTDATEPLAN', 'last_appointment_date') \
     
