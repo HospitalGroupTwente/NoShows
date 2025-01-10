@@ -15,11 +15,13 @@ def difference_scheduling_and_appointment(df: pd.DataFrame) -> pd.Series:
     Calculates the difference in days between scheduling day and appointment day
     '''
 
-    delta = df['STARTDATEPLAN'] - df['INVOERDAT']
-    day_delta = delta.dt.days
-
-    return day_delta
-
+    # Calculate the working days difference using numpy.busday_count
+    working_days_delta = df.apply(
+        lambda row: np.busday_count(row['INVOERDAT'].date(), row['STARTDATEPLAN'].date()),
+        axis=1
+    )
+    
+    return pd.Series(working_days_delta)
 
 def difference_scheduling_and_arrival(df: pd.DataFrame, treshold:int = 60) -> pd.Series:
     '''

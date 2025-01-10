@@ -35,7 +35,7 @@ def preprocess_noshow_data(df_data: pd.DataFrame, start_year, hist_years: int, t
     '''
     # removing data not suitable for prediction
     df_data = cleaning.clean_data(df_data)
-    df_data = df_data[df_data['CONSTYPE'].isin(['H', 'E', 'V', '*'])]
+    # df_data = df_data[df_data['CONSTYPE'].isin(['H', 'E'])]
 
     # get target variable
     df_data = misc.process_target_variable(df_data)  
@@ -53,27 +53,25 @@ def preprocess_noshow_data(df_data: pd.DataFrame, start_year, hist_years: int, t
     # get geo features
     df_data['POSTCODE'] = geographic.extract_zipcode(df_data['POSTCODE'])
     df_data['LOCATIE'] = df_data['DESCRIPTION'].apply(geographic.get_location)
-    zip_codes = geographic.get_all_nl_zip_codes('/export/home/jmaathuis/Documents/NO-SHOWS/3_PreProcessing/NL(1).txt')
+    df_data = df_data.drop(columns=['DESCRIPTION'])
+    df_data = df_data[df_data['LOCATIE'].notna()]
+    zip_codes = geographic.get_all_nl_zip_codes('/mnt/data/jmaathuis/no_shows/NL.txt')
     df_data = df_data.merge(zip_codes, how='left', left_on='POSTCODE', right_index=True)
     df_data['AFSTAND'] = geographic.haversine_distance(df_data['LOCATIE'], df_data['latitude'], df_data['longitude'])
 
     # get cumulative features
     df_data = cumulative.calculate_cum_features(df_data, history_years=hist_years, exclude_days=3)
     # df_data = df_data[df_data['STARTDATEPLAN'] >= start_year]
-
-    df_data = df_data[df_data['CONSTYPE'].isin(['H', 'E', 'V', '*'])]
     return df_data
-    # return misc.get_feature_df(df_data, training=training)
-    
+
 
 if __name__ == '__main__':
-    # case for creating a training setepr
+    # case for creating a training set
     file = sys.argv[1]
     start_year = str(sys.argv[2])
     history_years = int(sys.argv[3])
-    # appointments = int(sys.argv[4])
 
-    outfile = f'{file.split(".csv")[0]}_start_date={start_year}_hist={history_years}_improved2.csv'
+    outfile = f'{file.split(".csv")[0]}_start_date={start_year}_hist={history_years}_improved_v3.csv'
     print(outfile)
 
     df = pd.read_csv(file, sep=';', parse_dates=['STARTDATEPLAN', 'INVOERDAT'], 
@@ -83,6 +81,8 @@ if __name__ == '__main__':
                         'DUUR': pd.Int64Dtype()}, encoding='utf-8-sig')
 
     df_pp = preprocess_noshow_data(df, start_year=start_year, hist_years=history_years, training=True)
+    print(df_pp)
+    # print(df_pp[df_pp.duplicated(subset=['PATIENTNR', 'STARTDATEPLAN', 'STARTTIMEPLAN'])])
 
     df_pp.to_csv(outfile, index=0)
 

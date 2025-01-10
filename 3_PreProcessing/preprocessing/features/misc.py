@@ -11,9 +11,11 @@ def get_specialism(df: pd.DataFrame) -> pd.Series:
 def process_target_variable(df: pd.DataFrame) -> pd.DataFrame:
     no_show_cats = [
                 'Patient niet verschenen (of te laat gemeld)',
+                'Verzoek patient (24 van tevoren afgemeld)',
                 'No show (geen factuur)',
                 'Verzoek patient (<24 uur van tevoren afgemeld)',
     ]
+    
 
     df = df[ ( df['AfspraakstatusKey'].isin([6, 8]) & (df['REDEN'].isin(no_show_cats)) ) | (~df['AfspraakstatusKey'].isin([6,8]))]# & df['REDEN'].isna())]
     df['no_show'] = df['AfspraakstatusKey'].isin([6, 8]).astype(int)   # convert to int
