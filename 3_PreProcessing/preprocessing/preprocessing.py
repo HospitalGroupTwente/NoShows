@@ -1,12 +1,15 @@
 import pandas as pd
 import sys
+import logging
 
 from features import datetime, geographic, cumulative, misc
 from cleaning import cleaning
 
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 
-def preprocess_noshow_data(df_data: pd.DataFrame, start_year, hist_years: int, training: bool = False) -> pd.DataFrame:
+def preprocess_noshow_data(df_data: pd.DataFrame, hist_years: int, training: bool = False) -> pd.DataFrame:
     '''
     Preprocesses all of the data so that it can be used for training or inference
 
@@ -35,10 +38,12 @@ def preprocess_noshow_data(df_data: pd.DataFrame, start_year, hist_years: int, t
     '''
     # removing data not suitable for prediction
     df_data = cleaning.clean_data(df_data)
-    # df_data = df_data[df_data['CONSTYPE'].isin(['H', 'E'])]
+    df_data = df_data[df_data['CONSTYPE'].isin(['H', 'E', 'V'])]
+    logger.info('cleaned the data')
 
     # get target variable
-    df_data = misc.process_target_variable(df_data)  
+    df_data = misc.process_target_variable(df_data) 
+    logger.info('processed target variable') 
 
     # get date features
     df_data['AfspraakZelfdeDag'] = datetime.has_appointment_same_day(df_data)
@@ -48,7 +53,8 @@ def preprocess_noshow_data(df_data: pd.DataFrame, start_year, hist_years: int, t
     df_data['DagAfspraak'] = datetime.fetch_weekday(df_data['STARTDATEPLAN'])
     df_data['TijdAfspraak'] = datetime.fetch_appointment_hour(df_data['STARTTIMEPLAN'])
     df_data['SPECIALISME'] = misc.get_specialism(df_data)
-    df_data['VerschilAankomstEnStart'] = datetime.difference_scheduling_and_arrival(df_data, treshold=60)
+    df_data['VerschilAankomstEnStart'] = datetime.difference_scheduling_and_arrival(df_data, treshold=30)
+    logger.info('processed date features')
 
     # get geo features
     df_data['POSTCODE'] = geographic.extract_zipcode(df_data['POSTCODE'])
@@ -58,32 +64,32 @@ def preprocess_noshow_data(df_data: pd.DataFrame, start_year, hist_years: int, t
     zip_codes = geographic.get_all_nl_zip_codes('/mnt/data/jmaathuis/no_shows/NL.txt')
     df_data = df_data.merge(zip_codes, how='left', left_on='POSTCODE', right_index=True)
     df_data['AFSTAND'] = geographic.haversine_distance(df_data['LOCATIE'], df_data['latitude'], df_data['longitude'])
+    logging.info('processed geo features')
 
     # get cumulative features
     df_data = cumulative.calculate_cum_features(df_data, history_years=hist_years, exclude_days=3)
-    # df_data = df_data[df_data['STARTDATEPLAN'] >= start_year]
+    
     return df_data
 
 
 if __name__ == '__main__':
     # case for creating a training set
     file = sys.argv[1]
-    start_year = str(sys.argv[2])
-    history_years = int(sys.argv[3])
+    history_years = int(sys.argv[2])
 
-    outfile = f'{file.split(".csv")[0]}_start_date={start_year}_hist={history_years}_improved_v3.csv'
-    print(outfile)
+    outfile = f'{file.split(".csv")[0]}_hist={history_years}.csv'
 
     df = pd.read_csv(file, sep=';', parse_dates=['STARTDATEPLAN', 'INVOERDAT'], 
                 dtype={'PATIENTNR': 'int64', 'MERGED': 'int64', 'GESLACHT': str, 'POSTOCDE': str, 'WOONPLAATS': str, #'LEEFTIJD': 'int64', 
                         'STARTTIMEPLAN': str, 'AANKOMST': str, 'AGENDA': str, 'SUBAGENDA': str, 'SPECCODE': str, 'TARAFD': str,
                         'LOCATIONID': str, 'DESCRIPTION': str, 'IsVoldaan': str, 'AfspraakstatusKey': 'Int64', 'CONSTYPE': str, 'CODE': str,
                         'DUUR': pd.Int64Dtype()}, encoding='utf-8-sig')
+    logger.info(f'loaded data')
 
-    df_pp = preprocess_noshow_data(df, start_year=start_year, hist_years=history_years, training=True)
-    print(df_pp)
-    # print(df_pp[df_pp.duplicated(subset=['PATIENTNR', 'STARTDATEPLAN', 'STARTTIMEPLAN'])])
+    df_pp = preprocess_noshow_data(df, hist_years=history_years, training=True)
 
     df_pp.to_csv(outfile, index=0)
+    logger.info(f'data written to: {outfile}')
+    
 
 
