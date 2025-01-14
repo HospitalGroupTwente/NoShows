@@ -17,7 +17,7 @@ def process_target_variable(df: pd.DataFrame) -> pd.DataFrame:
     ]
     
 
-    df = df[ ( df['AfspraakstatusKey'].isin([6, 8]) & (df['REDEN'].isin(no_show_cats)) ) | (~df['AfspraakstatusKey'].isin([6,8]))]# & df['REDEN'].isna())]
+    df = df[ ( df['AfspraakstatusKey'].isin([6, 8]) & (df['REDEN'].isin(no_show_cats)) ) | (~df['AfspraakstatusKey'].isin([6,8]))].copy() # & df['REDEN'].isna())]
     df['no_show'] = df['AfspraakstatusKey'].isin([6, 8]).astype(int)   # convert to int
     
 
