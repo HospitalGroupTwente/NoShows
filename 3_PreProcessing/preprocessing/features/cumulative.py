@@ -1,5 +1,11 @@
 import pandas as pd
 import numpy as np
+import logging
+
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
+
 
 def add_working_days(df: pd.DataFrame, column: str, exclude_days: int) -> pd.DataFrame:
     '''
@@ -17,7 +23,7 @@ def add_working_days(df: pd.DataFrame, column: str, exclude_days: int) -> pd.Dat
     return df
 
 
-def get_rolling_feature(df: pd.DataFrame, history_years: int, exclude_days: int, rolling_func: str, feature: str, new_feature: str):
+def get_rolling_feature(df: pd.DataFrame, history_years: int, exclude_days: int, rolling_func: str, feature: str, new_feature: str, groupby_col: str = None):
     '''
     Calculates a rolling feature, i.e. a feature that is obtained by applying a function on a rolling window
     It creates a rolling window for the amount of history_years specified, without the exclude_days, and applies the rolling_func on this window.
@@ -37,17 +43,22 @@ def get_rolling_feature(df: pd.DataFrame, history_years: int, exclude_days: int,
         name of the column on which the rolling_func is applied
     new_feature : str
         name of the column of your new feature, this can be whatever suits
+    groupby_col : str
+        column on which to do a groupby
     
     Returns
     -------
     pd.DataFrame
         Dataframe containing the new rolling feature
     '''
+    groupby_cols = ['PATIENTNR']
+    if groupby_col:
+        groupby_cols.append(groupby_col)
     
     # create rolling windows, df_exclude will be used to remove the data about appointments of the previous n days. This is done because in deployment we will be predicting no shows over n days
     window_days = 365 * history_years
-    df_window = df.reset_index().set_index('STARTDATEPLAN').groupby('PATIENTNR', sort=False)[[feature]].rolling(f'{window_days}D', )
-    df_exclude = df.reset_index().set_index('STARTDATEPLAN').groupby('PATIENTNR', sort=False)[[feature]].rolling(f'{exclude_days}D')
+    df_window = df.reset_index().set_index('STARTDATEPLAN').groupby(groupby_cols, sort=False)[[feature]].rolling(f'{window_days}D', )
+    df_exclude = df.reset_index().set_index('STARTDATEPLAN').groupby(groupby_cols, sort=False)[[feature]].rolling(f'{exclude_days}D')
     
     # calculate the new feature by applying the rolling_func and extracting occurenced in the last exclude_days
     if rolling_func == 'sum':
@@ -58,7 +69,12 @@ def get_rolling_feature(df: pd.DataFrame, history_years: int, exclude_days: int,
         raise ValueError
     
     # add the feature
-    df = df.merge(new_rolling_feature, on=['STARTDATEPLAN', 'PATIENTNR'])
+    if groupby_col:
+        df = df.merge(new_rolling_feature.drop(columns=[groupby_col]), on=['STARTDATEPLAN', 'PATIENTNR'])
+    else:
+        df = df.merge(new_rolling_feature, on=['STARTDATEPLAN', 'PATIENTNR'])
+    
+    logger.info(f'processed {new_feature}')
     
     return df
 
@@ -98,7 +114,7 @@ def get_feature_of_last_appointment(df, exclude_days, feature, new_feature):
                        
                        on='STARTDATEPLAN', by='PATIENTNR', direction='backward'
                        )
-    
+    logger.info(f'processed {new_feature}')
     return df
 
 def calculate_cum_features(df: pd.DataFrame, history_years : int=5, exclude_days=3):
@@ -119,19 +135,26 @@ def calculate_cum_features(df: pd.DataFrame, history_years : int=5, exclude_days
     df = df[~df.index.duplicated(keep="last")].reset_index()
     df = df.sort_values(by=['STARTDATEPLAN', 'PATIENTNR'])
 
-    df = df.pipe(get_rolling_feature, history_years, exclude_days, 'sum', 'no_show', 'num_no_shows') \
-           .pipe(get_rolling_feature, history_years, exclude_days, 'count', 'no_show', 'num_appointments') \
-           .pipe(get_rolling_feature, history_years, exclude_days, 'sum', 'VerschilAankomstEnStart', 'sum_arrival_times') \
-           .pipe(get_rolling_feature, 0.25, 3, 'count', 'no_show', 'num_appointment_last_3_months') \
-           .pipe(get_feature_of_last_appointment, exclude_days, 'no_show', 'last_noshow') \
-           .pipe(get_feature_of_last_appointment, exclude_days, 'STARTDATEPLAN', 'last_appointment_date') \
+    df = df.pipe(get_rolling_feature, history_years, exclude_days, rolling_func='sum',   feature='no_show', new_feature='num_no_shows') \
+           .pipe(get_rolling_feature, history_years, exclude_days, rolling_func='count', feature='no_show', new_feature='num_appointments') \
+           .pipe(get_rolling_feature, history_years, exclude_days, rolling_func='sum',   feature='no_show', new_feature='num_no_shows_spec', groupby_col='SPECIALISME') \
+           .pipe(get_rolling_feature, history_years, exclude_days, rolling_func='sum',   feature='no_show', new_feature='num_appointments_spec', groupby_col='SPECIALISME') \
+           .pipe(get_rolling_feature, history_years, exclude_days, rolling_func='count', feature='no_show', new_feature='num_appointments_same_location', groupby_col='LOCATIE') \
+           .pipe(get_rolling_feature, history_years, exclude_days, rolling_func='sum',   feature='VerschilAankomstEnStart', new_feature='sum_arrival_times') \
+           .pipe(get_rolling_feature, history_years, exclude_days, rolling_func='count',   feature='VerschilAankomstEnStart', new_feature='num_arrival_times') \
+           .pipe(get_feature_of_last_appointment, exclude_days, feature='no_show', new_feature='last_noshow') \
+           .pipe(get_feature_of_last_appointment, exclude_days, feature='STARTDATEPLAN', new_feature='last_appointment_date') 
     
     # calculate percentage of no shows
-    df['perc_no_shows'] = df['num_no_shows'].fillna(0) / df['num_appointments'].fillna(0)
+    df['perc_no_shows'] = df['num_no_shows'].fillna(0) / df['num_appointments'].fillna(0) 
+    df['perc_no_shows_spec'] = df['num_no_shows_spec'].fillna(0) / df['num_appointments_spec'].fillna(0)
     
+    # calculate appointments at other location
+    df['num_appointments_other_location'] = df['num_appointments'].fillna(0) - df['num_appointments_same_location'].fillna(0)
+        
     # calculate mean arrival time
-    df['stiptheid']     = df['sum_arrival_times'] / (df['num_appointments'].fillna(0) - df['num_no_shows'].fillna(0))
-    df.loc[np.isinf(df['stiptheid']), 'stiptheid'] = df.loc[np.isinf(df['stiptheid']), 'sum_arrival_times'] / df.loc[np.isinf(df['stiptheid']), 'num_appointments']
+    df['stiptheid'] = df['sum_arrival_times'].fillna(0) / df['num_arrival_times'].fillna(0)
+    df.loc[np.isinf(df['stiptheid']), 'stiptheid'] = np.nan
     
     # calculate days since the last appointment
     df['days_since_last_appointment'] = (df['STARTDATEPLAN'] - df['last_appointment_date']).dt.days
